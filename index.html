@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多智能体深度研讨系统 (专业勘探版 + 3D可视)</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts-gl@2.0.9/dist/echarts-gl.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="brand">
+            <i class="fas fa-project-diagram"></i>
+            矿产预测 深度研讨
+        </div>
+
+        <div class="control-group">
+            <div class="group-title">自动流程</div>
+            <button class="agent-btn" id="btn-debate">
+                <i class="fas fa-comments" style="color: #2ecc71;"></i>
+                开始圆桌研讨
+            </button>
+            <button class="agent-btn" id="btn-clear-ui">
+                <i class="fas fa-trash-alt" style="color: #e74c3c;"></i>
+                仅清空屏幕
+            </button>
+            <button class="agent-btn" id="btn-new-session">
+                <i class="fas fa-sync-alt" style="color: #3498db;"></i>
+                新建会话 (申请ID)
+            </button>
+        </div>
+
+        <div class="control-group">
+            <div class="group-title">手动点名</div>
+            <button class="agent-btn manual-btn" data-agent="general">
+                <i class="fas fa-brain t-general"></i> 通用知识
+            </button>
+            <button class="agent-btn manual-btn" data-agent="geophysical">
+                <i class="fas fa-magnet t-geo"></i> 物探专家
+            </button>
+            <button class="agent-btn manual-btn" data-agent="geochemical">
+                <i class="fas fa-flask t-chem"></i> 化探专家
+            </button>
+            <button class="agent-btn manual-btn" data-agent="achievement">
+                <i class="fas fa-chart-line t-achieve"></i> 成果分析
+            </button>
+        </div>
+        
+        <div class="control-group" style="margin-top: auto;">
+             <div class="group-title">紧急干预</div>
+             <p style="font-size: 12px; color: #777; margin-bottom: 8px;">输入指令，强制主持人执行</p>
+             <button class="agent-btn host-btn" id="btn-host-intervene">
+                <i class="fas fa-gavel"></i>
+                主持人立即介入
+            </button>
+        </div>
+    </div>
+
+    <div class="main-chat">
+        <div class="split-view">
+            <div class="chat-container">
+                <button id="map-toggle-btn" title="展开/收起视图">
+                    <i class="fas fa-map-marked-alt"></i>
+                </button>
+
+                <div class="chat-stream" id="chat-stream">
+                    </div>
+
+                <div class="input-dock">
+                    <div class="input-wrapper">
+                        <div class="file-toolbar">
+                            <input type="file" id="file-upload-input" style="display: none;" accept=".txt,.md,.json,.csv,.py,.js,.html,.log">
+                            
+                            <button class="file-btn" id="btn-trigger-upload">
+                                <i class="fas fa-upload"></i> 上传资料
+                            </button>
+                            
+                            <button class="file-btn" id="btn-toggle-file" disabled>
+                                <i class="fas fa-toggle-off"></i> <span>文件未启用</span>
+                            </button>
+                            
+                            <span class="file-name-display" id="file-name-display">未选择文件</span>
+                            
+                            <span class="file-hint">(支持 .txt, .md, .csv, .json 等)</span>
+                        </div>
+
+                        <textarea id="user-input" placeholder="输入研讨主题（如：分析该矿区的地质风险... 或 解释斑岩铜矿的成因...）"></textarea>
+                        <div class="mode-badge" id="input-mode">智能模式</div>
+                    </div>
+                    <button class="action-btn" id="btn-auto-main">
+                        <i class="fas fa-comments fa-lg"></i>
+                        开始研讨
+                    </button>
+                </div>
+            </div>
+
+            <div id="map-wrapper">
+                <div id="map"></div>
+                
+                <div id="echarts-main"></div>
+
+                <div class="view-switcher">
+                    <button class="view-btn active" id="btn-2d">2D 平面</button>
+                    <button class="view-btn" id="btn-3d">3D 模型</button>
+                </div>
+
+                <div id="ctrl-panel-3d" class="control-panel-3d">
+                    <h3>庐枞深部成矿预测</h3>
+                    <p>视图模式：<span class="key-instruction">交互漫游</span></p>
+                    <p>操作说明：</p>
+                    <p>• 左键按住：旋转视角</p>
+                    <p>• 滚轮滚动：放大/缩小</p>
+                    <p>• 右键按住：平移地图</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>
