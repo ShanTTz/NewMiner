@@ -1,7 +1,8 @@
-import { initMap, toggleMap } from './map2d.js';
-import { switchViewMode } from './map3d.js';
+import { initMap, toggleMap, invalidateMap } from './map2d.js'; // 引入 invalidateMap
+import { switchViewMode, resize3D } from './map3d.js';         // 引入 resize3D
 import * as UI from './ui.js';
 import * as API from './api.js';
+import state from './state.js'; // 引入 state 以获取当前模式
 
 document.addEventListener('DOMContentLoaded', () => {
     // 1. 初始化地图
@@ -20,27 +21,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('chat-stream').appendChild(welcomeDiv);
 
     // 3. UI 事件绑定
-    
-    // 输入框逻辑
     const inputEl = document.getElementById('user-input');
-    const autoBtn = document.getElementById('btn-auto-main');
-
-    autoBtn.addEventListener('click', () => {
+    
+    // 自动研讨
+    document.getElementById('btn-auto-main').addEventListener('click', () => {
         const val = inputEl.value.trim();
         API.triggerDebateFlow(val);
         inputEl.value = '';
     });
-
-    // 侧边栏按钮
     document.getElementById('btn-debate').addEventListener('click', () => {
         const val = inputEl.value.trim();
         API.triggerDebateFlow(val);
     });
 
-    document.getElementById('btn-new-session').addEventListener('click', () => {
-        API.refreshAllSessions();
-    });
-
+    // 基础控制
+    document.getElementById('btn-new-session').addEventListener('click', () => API.refreshAllSessions());
     document.getElementById('btn-clear-ui').addEventListener('click', () => {
         if(confirm('仅清空屏幕？')) UI.clearChatUI();
     });
@@ -74,13 +69,18 @@ document.addEventListener('DOMContentLoaded', () => {
         UI.toggleFileContext();
     });
 
-    // 地图/视图控制
+    // 视图切换
     document.getElementById('map-toggle-btn').addEventListener('click', toggleMap);
     document.getElementById('btn-2d').addEventListener('click', () => switchViewMode('2d'));
     document.getElementById('btn-3d').addEventListener('click', () => switchViewMode('3d'));
     
-    // 窗口调整
+    // 4. [找回的功能] 窗口自适应监听 (Window Resize)
+    // 修复：确保拖动浏览器窗口时，地图和3D模型能正确重绘
     window.addEventListener('resize', () => {
-        // resize logic handled in map3d/2d imports if needed
+        if (state.currentViewMode === '3d') {
+            resize3D();
+        } else {
+            invalidateMap();
+        }
     });
 });
