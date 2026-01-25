@@ -1,8 +1,8 @@
-import { initMap, toggleMap, invalidateMap } from './map2d.js'; // 引入 invalidateMap
-import { switchViewMode, resize3D } from './map3d.js';         // 引入 resize3D
+import { initMap, toggleMap, invalidateMap } from './map2d.js'; 
+import { switchViewMode, resize3D } from './map3d.js';         
 import * as UI from './ui.js';
 import * as API from './api.js';
-import state from './state.js'; // 引入 state 以获取当前模式
+import state from './state.js'; 
 
 document.addEventListener('DOMContentLoaded', () => {
     // 1. 初始化地图
