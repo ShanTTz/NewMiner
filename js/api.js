@@ -4,6 +4,9 @@ import * as UI from './ui.js';
 import { cleanAndParseJson } from './utils.js';
 import { drawRichLayer } from './map2d.js';
 
+// 辅助：延迟函数
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
 function getAugmentedPrompt(originalPrompt) {
     if (state.isFileEnabled && state.globalFileContent) {
         return originalPrompt + "\n\n【全局外部参考资料(用户上传)】:\n" + state.globalFileContent + "\n\n(请结合以上资料和你的知识库进行回答)";
@@ -12,7 +15,7 @@ function getAugmentedPrompt(originalPrompt) {
 }
 
 // ==========================================
-// 1. 创建会话 (保留功能：显示成功数 + 时间命名)
+// 1. 创建会话
 // ==========================================
 export async function refreshAllSessions() {
     clearHistory();
@@ -23,7 +26,6 @@ export async function refreshAllSessions() {
     btn.disabled = true;
     btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> 申请ID中...`;
     
-    // 使用当前本地时间作为会话名
     const sessionName = "Session " + new Date().toLocaleString();
 
     const promises = Object.keys(AGENTS).map(async key => {
@@ -62,41 +64,68 @@ export async function refreshAllSessions() {
 }
 
 // ==========================================
-// 2. 调用单体 Agent
+// 2. 调用单体 Agent (增加重试机制)
 // ==========================================
 export async function callAgent(agentKey, promptText, hidden = false) {
     if (!hidden) UI.showLoading(agentKey);
     const agent = AGENTS[agentKey];
     
-    try {
-        const payload = { "question": promptText, "stream": false };
-        if (agent.sessionId) payload.session_id = agent.sessionId;
+    // [修改] 最大重试次数
+    const MAX_RETRIES = 3;
+    let lastError = null;
 
-        const response = await fetch(`${API_BASE}/${agent.id}/completions`, {
-            method: 'POST',
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_TOKEN}` },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!hidden) UI.removeLoading(agentKey);
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const payload = { "question": promptText, "stream": false };
+            if (agent.sessionId) payload.session_id = agent.sessionId;
 
-        if (data.code === 0 && data.data) {
-            if (data.data.session_id) agent.sessionId = data.data.session_id;
-            let answer = data.data.answer || "无回复";
-            let refs = data.data.reference;
-            if (refs && refs.chunks) refs = refs.chunks;
+            // 这里可以添加 AbortController 来处理客户端超时，如果需要的话
+            const response = await fetch(`${API_BASE}/${agent.id}/completions`, {
+                method: 'POST',
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_TOKEN}` },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error: ${response.status}`);
+            }
+
+            const data = await response.json();
             
-            if (!hidden) UI.appendMessage(answer, agentKey, 'agent', refs);
-            return answer;
-        } else {
-            if (!hidden) UI.appendMessage(`⚠️ 错误: ${data.message}`, agentKey, 'system');
-            return null;
+            // 成功获取数据
+            if (data.code === 0 && data.data) {
+                if (!hidden) UI.removeLoading(agentKey); // 成功时移除 Loading
+                
+                if (data.data.session_id) agent.sessionId = data.data.session_id;
+                let answer = data.data.answer || "无回复";
+                let refs = data.data.reference;
+                if (refs && refs.chunks) refs = refs.chunks;
+                
+                if (!hidden) UI.appendMessage(answer, agentKey, 'agent', refs);
+                return answer;
+            } else {
+                throw new Error(data.message || "API returned error code");
+            }
+
+        } catch (e) {
+            console.warn(`[Attempt ${attempt}/${MAX_RETRIES}] Call ${agentKey} failed:`, e);
+            lastError = e;
+            
+            // 如果不是最后一次尝试，等待两秒后重试
+            if (attempt < MAX_RETRIES) {
+                if (!hidden) {
+                    // 可以在界面上显示一个小提示，或者静默重试
+                    // UI.appendMessage(`连接不稳定，正在进行第 ${attempt} 次重试...`, null, 'system');
+                }
+                await delay(2000 + attempt * 1000); // 递增等待：3s, 4s...
+            }
         }
-    } catch (e) {
-        if (!hidden) UI.removeLoading(agentKey);
-        if (!hidden) UI.appendMessage(`❌ 请求失败: ${e.message}`, agentKey, 'system');
-        return null;
     }
+
+    // 所有重试都失败了
+    if (!hidden) UI.removeLoading(agentKey);
+    if (!hidden) UI.appendMessage(`⚠️ <strong>${agent.name} 掉线了</strong><br>原因: ${lastError.message || "连接超时"}<br>请检查后台服务或点击“紧急干预”手动继续。`, agentKey, 'system');
+    return null;
 }
 
 // ==========================================
@@ -116,7 +145,10 @@ export async function triggerDebateFlow(userInputVal) {
         UI.appendMessage("正在通知所有专家进行独立分析...", null, 'system');
         let initialPrompt = getAugmentedPrompt(`用户问题：${userInputVal || "请继续分析"}\n请仅根据你的专业知识库进行分析。`);
         
+        // 并行调用
         await Promise.all(['general', 'geophysical', 'geochemical', 'achievement'].map(k => callAgent(k, initialPrompt)));
+        
+        // 进入主持人循环
         await hostEvaluationLoop();
     } catch (e) {
         UI.appendMessage("研讨流程异常: " + e.message, null, 'system');
@@ -127,15 +159,16 @@ export async function triggerDebateFlow(userInputVal) {
 }
 
 // ==========================================
-// 4. 主持人循环 (Host Loop)
+// 4. 主持人循环 (Host Loop - 增强版)
 // ==========================================
 async function hostEvaluationLoop() {
+    let formatErrorCount = 0; // [修改] 记录连续格式错误的次数
+
     while (state.debateRound < MAX_DEBATE_ROUNDS) {
         state.debateRound++;
         const history = buildContextString();
         
-        // 【核心】：这里保留了您要求的原始强力提示词
-        let hostPrompt = getAugmentedPrompt(`
+        let promptText = `
             你是研讨会的主持人。
             【任务】
             1. 审视历史发言。若观点冲突或证据不足，追问特定专家。
@@ -174,16 +207,29 @@ async function hostEvaluationLoop() {
             **格式B (通用)**: {"研讨总结": "...", "关键知识点": "...", "数据支撑": "..."}
 
             历史记录：${history}
-        `);
+        `;
+
+        // [修改] 如果上次格式错了，追加一条强力提示，而不是直接让流程断掉
+        if (formatErrorCount > 0) {
+            promptText += "\n\n【系统警告】检测到上一次输出不是有效的 JSON 格式。请务必只输出 JSON 代码块，不要包含任何额外的分析文本！";
+        }
+
+        let hostPrompt = getAugmentedPrompt(promptText);
 
         UI.showLoading('host');
-        let hostResponse = await callAgent('host', hostPrompt, true);
+        let hostResponse = await callAgent('host', hostPrompt, true); // true 表示隐藏默认输出，由下面手动处理
         UI.removeLoading('host');
-        if (!hostResponse) break;
+        
+        if (!hostResponse) {
+            UI.appendMessage("⚠️ 主持人响应超时或为空，流程已暂停。", null, 'system');
+            break; 
+        }
 
         const command = cleanAndParseJson(hostResponse);
 
         if (command) {
+            formatErrorCount = 0; // 成功解析，重置错误计数
+
             if (command.action === 'FINISH') {
                 let content = command.content;
                 if (typeof content === 'object') {
@@ -202,13 +248,28 @@ async function hostEvaluationLoop() {
                     UI.appendMessage(`(追问 ${AGENTS[targetKey].name}) ${command.content}`, 'host');
                     await callAgent(targetKey, getAugmentedPrompt(`主持人追问：${command.content}`));
                 } else {
+                    // 如果指定了不存在的专家，也算作一种异常，打印出来并结束
                     UI.appendMessage(hostResponse, 'host'); 
                     break;
                 }
             }
         } else {
-            UI.appendMessage(hostResponse, 'host'); 
-            break;
+            // [修改] 解析失败处理逻辑
+            console.warn("Parsing Host JSON failed:", hostResponse);
+            
+            if (formatErrorCount < 2) {
+                // 给它 2 次自动修复的机会
+                formatErrorCount++;
+                state.debateRound--; // 这轮不算有效轮次
+                UI.appendMessage(`(系统监控) 主持人输出格式异常，正在要求其重试... (${formatErrorCount}/2)`, null, 'system');
+                // 继续下一次循环，会带上【系统警告】Prompt
+                continue; 
+            } else {
+                // 彻底放弃，直接把文本显示出来，让用户决定
+                UI.appendMessage(hostResponse, 'host'); 
+                UI.appendMessage("⚠️ 主持人输出无法识别为指令，自动研讨中止。您可以点击【紧急干预】手动引导。", null, 'system');
+                break;
+            }
         }
     }
 }
@@ -220,13 +281,12 @@ export async function manualTrigger(agentKey, val) {
 }
 
 // ==========================================
-// 5. 紧急干预 (Intervention) - 【关键优化】
+// 5. 紧急干预 (Intervention)
 // ==========================================
 export async function triggerHostIntervention(val) {
     if (!val) return;
     UI.appendMessage(`(干预指令) ${val}`, null, 'user');
     
-    // 【修改点】：这里同步使用了强力 JSON 定义，确保干预时也能正确画图
     let prompt = getAugmentedPrompt(`
         【最高优先级指令】用户下达：${val}。
         请立即执行并输出 JSON 指令。
