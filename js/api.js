@@ -3,6 +3,7 @@ import state, { buildContextString, clearHistory } from './state.js';
 import * as UI from './ui.js';
 import { cleanAndParseJson } from './utils.js';
 import { drawRichLayer } from './map2d.js';
+import { update3DLayer } from './map3d.js';
 
 // 辅助：延迟函数
 const delay = ms => new Promise(res => setTimeout(res, ms));
@@ -172,7 +173,8 @@ async function hostEvaluationLoop() {
             你是研讨会的主持人。
             【任务】
             1. 审视历史发言。若观点冲突或证据不足，追问特定专家。
-            2. 若结论清晰，输出最终报告。
+            2. 至少要进行一次追问。
+            3. 若结论清晰，输出最终报告。
             
             【判断规则】
             - 如果是【成矿预测/找矿】任务：必须在 FINISH 时输出符合 **格式A** 的 JSON，包含钻孔点位和异常数据。
@@ -236,6 +238,7 @@ async function hostEvaluationLoop() {
                     if (content.target_area || content.drill_sites) {
                         UI.appendMessage(`🗺️ 正在绘制：靶区、钻孔点位...`, null, 'system');
                         drawRichLayer(content);
+                        update3DLayer(content); // [新增] 更新3D视图
                     }
                     content = UI.renderReportCard(content);
                 }
@@ -314,7 +317,10 @@ export async function triggerHostIntervention(val) {
 
     const cmd = cleanAndParseJson(res);
     if(cmd && cmd.action === 'FINISH') {
-        if(cmd.content.target_area) drawRichLayer(cmd.content);
+        if(cmd.content.target_area || cmd.content.drill_sites) {
+            drawRichLayer(cmd.content);
+            update3DLayer(cmd.content); // [新增] 紧急干预时也更新3D
+        }
         UI.appendMessage(UI.renderReportCard(cmd.content), 'host');
     } else {
         UI.appendMessage(res, 'host');

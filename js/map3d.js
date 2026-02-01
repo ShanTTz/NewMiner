@@ -3,10 +3,10 @@ import { invalidateMap, ensureMapOpen } from './map2d.js';
 
 let my3DChart = null;
 let is3DInitialized = false;
+let cachedTerrainData = []; // [新增] 缓存地形数据
 
 export function init3DModel() {
     const chartDom = document.getElementById('echarts-main');
-    // 确保容器有尺寸
     if (chartDom.clientHeight === 0) {
         chartDom.style.height = '100%';
     }
@@ -14,7 +14,6 @@ export function init3DModel() {
     my3DChart = echarts.init(chartDom);
     const simplex = new SimplexNoise();
 
-    // 1. 生成地形 (保持原版逻辑)
     function generateTerrain() {
         const data = [];
         for (let x = -5000; x <= 5000; x += 200) {
@@ -27,131 +26,170 @@ export function init3DModel() {
         return data;
     }
 
-    // 2. [找回的功能] 生成矿体数据 [x, y, z, probability]
-    function generateOreBody(centerX, centerY, centerZ, radius, count) {
-        var data = [];
-        for (var i = 0; i < count; i++) {
-            var x = centerX + (Math.random() - 0.5) * radius;
-            var y = centerY + (Math.random() - 0.5) * radius;
-            var z = centerZ + (Math.random() - 0.5) * (radius * 0.7);
-            
-            // 计算距离中心的概率衰减
-            var dist = Math.sqrt((x-centerX)**2 + (y-centerY)**2 + (z-centerZ)**2);
-            var prob = Math.max(0, 1 - dist / (radius * 0.5));
-            
-            // 只保留概率较高的数据点
-            if (prob > 0.15) {
-                data.push([x, y, z, prob]);
-            }
-        }
-        return data;
+    // 初始化时生成并缓存地形
+    if (cachedTerrainData.length === 0) {
+        cachedTerrainData = generateTerrain();
     }
 
-    const terrainData = generateTerrain();
-    
-    // [找回的功能] 模拟三个主要矿集区数据
-    const oreLuohe = generateOreBody(-2000, -1000, -900, 1400, 2000); // 罗河
-    const oreNihe = generateOreBody(1500, 2000, -800, 1100, 1800);    // 泥河
-    const oreShaxi = generateOreBody(3000, -2000, -700, 1000, 1500);  // 沙溪
-    const allOreData = [].concat(oreLuohe, oreNihe, oreShaxi);
+    // 默认的模拟矿体（仅用于初始化展示）
+    const initialOreData = []; // 初始化可以是空的，或者保留原来的演示数据
 
     const option = {
         tooltip: {
             show: true,
             formatter: function (params) {
-                if (params.seriesIndex === 1) {
-                    return params.marker + ' 成矿概率: ' + params.value[3].toFixed(2);
+                // 增强 tooltip，适配不同类型的数据
+                if (params.seriesName === '钻孔点位') {
+                    return `<strong>${params.name}</strong><br>位置: ${params.value[0]}, ${params.value[1]}<br>说明: ${params.value[3]}`;
                 }
-                return '';
+                return params.marker + params.seriesName;
             }
         },
         visualMap: {
             show: true,
-            seriesIndex: [1], 
-            dimension: 3,
-            min: 0,
-            max: 1,
+            dimension: 2, // 根据 Z 轴高度着色
+            min: -1000,
+            max: 1000,
             inRange: {
                 color: ['#313695', '#4575b4', '#74add1', '#ffffbf', '#fdae61', '#f46d43', '#d73027']
             },
-            text: ['高概率', '低概率'],
-            textStyle: { color: '#333' },
-            bottom: 30,
-            left: 'center',
-            orient: 'horizontal',
             calculable: true
         },
         grid3D: {
-            boxWidth: 220,
-            boxDepth: 220,
-            boxHeight: 90,
-            environment: 'auto',
-            light: {
-                main: { intensity: 1.2, shadow: true, alpha: 50, beta: -30 },
-                ambient: { intensity: 0.5 }
-            },
+            boxWidth: 200,
+            boxDepth: 200,
             viewControl: {
-                autoRotate: false,
                 projection: 'perspective',
-                alpha: 45,
-                beta: 20,
-                distance: 320,
-                minAlpha: 5,
-                maxAlpha: 90,
-                panMouseButton: 'right',
-                rotateMouseButton: 'left'
-            },
-            axisLine: { lineStyle: { color: '#333', opacity: 0.8 } },
-            axisPointer: { show: false }
+                autoRotate: false,
+                distance: 300
+            }
         },
-        xAxis3D: { name: 'E (m)', min: -6000, max: 6000 },
-        yAxis3D: { name: 'N (m)', min: -6000, max: 6000 },
-        zAxis3D: { name: 'Elevation (m)', min: -3000, max: 1000 },
+        xAxis3D: { name: 'X/Lng', min: -6000, max: 6000 },
+        yAxis3D: { name: 'Y/Lat', min: -6000, max: 6000 },
+        zAxis3D: { name: 'Z/Depth', min: -2000, max: 1000 },
         series: [
             {
                 type: 'surface',
                 name: '地形',
-                data: terrainData,
+                data: cachedTerrainData,
                 shading: 'lambert',
-                itemStyle: { color: '#e6c88c', opacity: 0.5 },
-                wireframe: { show: true, lineStyle: { width: 0.5, color: 'rgba(0,0,0,0.15)' } },
+                itemStyle: { color: '#e6c88c', opacity: 0.4 }, // 地形设为半透明
+                wireframe: { show: false },
                 silent: true
             },
             {
-                type: 'scatter3D', // [找回的功能] 矿体散点图
-                name: '预测矿体',
-                data: allOreData,
-                symbolSize: 4,
-                itemStyle: { opacity: 1 },
-                blendMode: 'source-over'
-            },
-            {
-                type: 'scatter3D', // [找回的功能] 地名标签
-                data: [
-                    { name: '罗河铁矿', value: [-2000, -1000, 400] },
-                    { name: '泥河铁矿', value: [1500, 2000, 400] },
-                    { name: '沙溪铜矿', value: [3000, -2000, 400] },
-                    { name: '庐江县', value: [0, 200, 200] }
-                ],
-                symbolSize: 0,
-                label: {
-                    show: true,
-                    position: 'top',
-                    formatter: '{b}',
-                    textStyle: {
-                        color: '#000',
-                        fontSize: 13,
-                        fontWeight: 'bold',
-                        backgroundColor: 'rgba(255,255,255,0.7)',
-                        padding: [4, 6],
-                        borderRadius: 4
-                    }
-                }
+                type: 'scatter3D',
+                name: '数据点',
+                data: initialOreData
             }
         ]
     };
     my3DChart.setOption(option);
     is3DInitialized = true;
+}
+
+// [新增] 核心函数：根据 Host 返回的数据更新 3D 场景
+export function update3DLayer(hostData) {
+    if (!my3DChart) init3DModel(); // 确保已初始化
+    if (!hostData) return;
+
+    // 1. 解析数据
+    const drillSites = hostData.drill_sites || [];
+    const anomalies = hostData.geo_anomalies || [];
+    const chemAnomalies = hostData.chem_anomalies || [];
+
+    const newSeries = [];
+    let allX = [];
+    let allY = [];
+
+    // 辅助函数：解析深度字符串 "500m" -> 500
+    const parseDepth = (str) => {
+        if (!str) return 0;
+        const num = parseFloat(str);
+        return isNaN(num) ? 0 : -Math.abs(num); // 深度转为负 Z 轴坐标
+    };
+
+    // A. 处理钻孔数据
+    if (drillSites.length > 0) {
+        const drillPoints = drillSites.map(d => {
+            const x = d.lng || d.x; // 优先使用经度
+            const y = d.lat || d.y; // 优先使用纬度
+            const z = parseDepth(d.depth); 
+            if (x && y) { allX.push(x); allY.push(y); }
+            return {
+                name: d.id,
+                value: [x, y, 200, d.reason] // Z=200 让它浮在地形上方作为标记
+            };
+        });
+
+        newSeries.push({
+            type: 'scatter3D',
+            name: '钻孔点位',
+            symbol: 'arrow',
+            symbolSize: 20,
+            itemStyle: { color: '#ff0000' },
+            data: drillPoints,
+            label: { show: true, formatter: '{b}', textStyle: { fontSize: 14, borderWidth: 1 } }
+        });
+    }
+
+    // B. 处理异常数据
+    const allAnomalies = [...anomalies, ...chemAnomalies];
+    if (allAnomalies.length > 0) {
+        const anoPoints = allAnomalies.map(a => {
+            const x = a.lng || a.x;
+            const y = a.lat || a.y;
+            if (x && y) { allX.push(x); allY.push(y); }
+            return {
+                name: a.type || a.element || '异常',
+                value: [x, y, 0, a.desc] // Z=0 贴地
+            };
+        });
+
+        newSeries.push({
+            type: 'scatter3D',
+            name: '异常区域',
+            symbol: 'circle',
+            symbolSize: 10,
+            itemStyle: { color: 'yellow', opacity: 0.8 },
+            data: anoPoints
+        });
+    }
+
+    // 2. 动态调整坐标轴 (如果数据坐标是经纬度，需要调整视图范围，否则点会挤在一起)
+    let axisConfig = {};
+    if (allX.length > 0 && allY.length > 0) {
+        const minX = Math.min(...allX);
+        const maxX = Math.max(...allX);
+        const minY = Math.min(...allY);
+        const maxY = Math.max(...allY);
+        
+        // 计算跨度，防止 min==max
+        const spanX = Math.max(maxX - minX, 0.01);
+        const spanY = Math.max(maxY - minY, 0.01);
+
+        axisConfig = {
+            xAxis3D: { min: minX - spanX, max: maxX + spanX, name: 'Lng/X' },
+            yAxis3D: { min: minY - spanY, max: maxY + spanY, name: 'Lat/Y' }
+        };
+        
+        // 注意：如果使用的是真实经纬度，原有的地形（-5000到5000米）将不可见或不匹配。
+        // 这里我们选择让视口聚焦在数据上。
+    }
+
+    // 3. 应用更新
+    my3DChart.setOption({
+        ...axisConfig,
+        series: [
+            // 保留地形作为背景（如果坐标差异太大，地形可能不可见，这符合预期）
+            {
+                type: 'surface',
+                data: cachedTerrainData,
+                itemStyle: { opacity: 0.1 } // 降低地形不透明度以突出数据
+            },
+            ...newSeries
+        ]
+    });
 }
 
 export function switchViewMode(mode) {
@@ -172,7 +210,7 @@ export function switchViewMode(mode) {
         btn3d.classList.remove('active');
         invalidateMap();
     } else {
-        mapEl.style.display = 'block'; // 注意：父容器需要显示
+        mapEl.style.display = 'block';
         echartsEl.style.display = 'block';
         ctrl3d.style.display = 'block';
         btn2d.classList.remove('active');
