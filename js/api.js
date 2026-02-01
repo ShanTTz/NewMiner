@@ -168,14 +168,13 @@ async function hostEvaluationLoop() {
     while (state.debateRound < MAX_DEBATE_ROUNDS) {
         state.debateRound++;
         const history = buildContextString();
-        
+       // 2. 至少要进行一次追问。
         let promptText = `
             你是研讨会的主持人。
             【任务】
             1. 审视历史发言。若观点冲突或证据不足，追问特定专家。
-            2. 至少要进行一次追问。
-            3. 若结论清晰，输出最终报告。
-            
+            2. 若结论清晰，输出最终报告。
+            3. 至少要进行一次追问。
             【判断规则】
             - 如果是【成矿预测/找矿】任务：必须在 FINISH 时输出符合 **格式A** 的 JSON，包含钻孔点位和异常数据。
             - 如果是【通用地质/科普】任务：输出 **格式B**。
